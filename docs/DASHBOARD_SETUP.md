@@ -29,6 +29,30 @@ Giữ time range mặc định 60 phút, refresh 30 giây và hiển thị thres
 python scripts/validate_dashboard.py
 ```
 
+## Chạy dashboard runtime
+
+Dashboard runtime đã có tại `scripts/dashboard.py`. Dashboard đọc trực tiếp
+`data/logs.jsonl`, lọc 60 phút gần nhất và hiển thị đúng sáu panel trong
+`config/dashboard.yaml`.
+
+```powershell
+python -m pip install -r requirements.txt
+python -m streamlit run scripts/dashboard.py
+```
+
+Mở URL Streamlit được in trong terminal, thường là `http://localhost:8501`.
+Giữ API và load test chạy ở terminal khác để dashboard có dữ liệu:
+
+```powershell
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+python scripts/load_test.py --concurrency 5
+```
+
+Dashboard hiển thị refresh contract 30 giây và có nút `Refresh now`; bấm nút sau
+mỗi lần load test hoặc incident action để chụp snapshot ổn định. Khi điều tra
+incident, ghi lại time range, panel bị breach, threshold và correlation ID của
+request bất thường.
+
 Validator kiểm tra cấu trúc contract; nó không thể chứng minh biểu đồ trong ảnh dùng đúng dữ liệu. Evidence runtime vẫn bắt buộc.
 
 ## Cách kiểm tra runtime

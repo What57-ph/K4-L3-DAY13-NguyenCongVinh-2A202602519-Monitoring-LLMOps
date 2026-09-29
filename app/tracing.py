@@ -24,6 +24,9 @@ except ImportError:  # pragma: no cover - chỉ dùng khi chưa cài requirement
         def update_current_generation(self, **kwargs: Any) -> None:
             return None
 
+        def flush(self) -> None:
+            return None
+
     def get_client():
         return _DummyClient()
 
@@ -34,6 +37,37 @@ except ImportError:  # pragma: no cover - chỉ dùng khi chưa cài requirement
 
 def get_langfuse_client():
     return get_client()
+
+
+class _NoopObservation:
+    def update(self, **kwargs: Any) -> None:
+        return None
+
+
+@contextmanager
+def start_as_current_observation(
+    client: Any,
+    *,
+    enabled: bool,
+    **kwargs: Any,
+):
+    """Create an active Langfuse v4 child, or safely no-op when disabled."""
+    starter = getattr(client, "start_as_current_observation", None)
+    if not enabled or not callable(starter):
+        yield _NoopObservation()
+        return
+
+    with starter(**kwargs) as observation:
+        yield observation
+
+
+def flush_traces() -> None:
+    if not tracing_enabled():
+        return
+    try:
+        get_langfuse_client().flush()
+    except Exception:  # pragma: no cover - telemetry must not break shutdown
+        return
 
 
 def tracing_enabled() -> bool:

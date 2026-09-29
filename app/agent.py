@@ -9,7 +9,13 @@ from .mock_llm import FakeLLM
 from .mock_rag import retrieve
 from .pii import hash_user_id, summarize_text
 from .prompt_management import resolve_prompt
-from .tracing import get_langfuse_client, observe, propagate_attributes, tracing_enabled
+from .tracing import (
+    get_langfuse_client,
+    observe,
+    propagate_attributes,
+    start_as_current_observation,
+    tracing_enabled,
+)
 
 
 @dataclass
@@ -51,7 +57,28 @@ class LabAgent:
             },
         ):
             started = time.perf_counter()
-            docs = retrieve(message)
+            with start_as_current_observation(
+                langfuse_client,
+                enabled=tracing_enabled(),
+                as_type="retriever",
+                name="retrieve-context",
+                input={"query": summarize_text(message)},
+            ) as retrieval_observation:
+                try:
+                    docs = retrieve(message)
+                    retrieval_observation.update(
+                        output={
+                            "doc_count": len(docs),
+                            "documents": [summarize_text(doc, max_len=400) for doc in docs],
+                        }
+                    )
+                except Exception as exc:
+                    retrieval_observation.update(
+                        level="ERROR",
+                        status_message=type(exc).__name__,
+                    )
+                    raise
+
             prompt = resolve_prompt(
                 langfuse_client,
                 feature=feature,
@@ -59,25 +86,63 @@ class LabAgent:
                 message=message,
                 enabled=tracing_enabled(),
             )
-            langfuse_client.update_current_span(
-                metadata={
-                    "doc_count": len(docs),
-                    "query_preview": summarize_text(message),
-                    "prompt_name": prompt.name,
-                    "prompt_label": prompt.label,
-                    "prompt_version": prompt.version,
-                    "prompt_source": prompt.source,
-                    "prompt_fetch_error": prompt.fetch_error or "",
-                },
-                version=prompt.version,
-            )
-            # TODO (CP2): instrument retrieve() and FakeLLM.generate() as child
-            # observations. The nested generation must receive prompt, usage and cost.
             with propagate_attributes(prompt=prompt.managed_prompt):
-                response = self.llm.generate(prompt.text)
+                with start_as_current_observation(
+                    langfuse_client,
+                    enabled=tracing_enabled(),
+                    as_type="generation",
+                    name="generate-response",
+                    model=self.model,
+                    input={"prompt": summarize_text(prompt.text, max_len=4000)},
+                    prompt=prompt.managed_prompt,
+                ) as generation_observation:
+                    try:
+                        response = self.llm.generate(prompt.text)
+                        input_cost = (response.usage.input_tokens / 1_000_000) * 3
+                        output_cost = (response.usage.output_tokens / 1_000_000) * 15
+                        total_cost = round(input_cost + output_cost, 6)
+                        generation_observation.update(
+                            output=summarize_text(response.text, max_len=4000),
+                            usage_details={
+                                "input": response.usage.input_tokens,
+                                "output": response.usage.output_tokens,
+                                "total": response.usage.input_tokens + response.usage.output_tokens,
+                            },
+                            cost_details={
+                                "input": input_cost,
+                                "output": output_cost,
+                                "total": total_cost,
+                            },
+                            metadata={"ttft_ms": response.ttft_ms},
+                        )
+                    except Exception as exc:
+                        generation_observation.update(
+                            level="ERROR",
+                            status_message=type(exc).__name__,
+                        )
+                        raise
             quality_score = self._heuristic_quality(message, response.text, docs)
             latency_ms = int((time.perf_counter() - started) * 1000)
             cost_usd = self._estimate_cost(response.usage.input_tokens, response.usage.output_tokens)
+
+            if tracing_enabled():
+                langfuse_client.update_current_span(
+                    input={"message": summarize_text(message)},
+                    output={
+                        "answer": summarize_text(response.text, max_len=4000),
+                        "quality_score": quality_score,
+                    },
+                    metadata={
+                        "doc_count": len(docs),
+                        "query_preview": summarize_text(message),
+                        "prompt_name": prompt.name,
+                        "prompt_label": prompt.label,
+                        "prompt_version": prompt.version,
+                        "prompt_source": prompt.source,
+                        "prompt_fetch_error": prompt.fetch_error or "",
+                    },
+                    version=prompt.version,
+                )
 
         metrics.record_request(
             latency_ms=latency_ms,

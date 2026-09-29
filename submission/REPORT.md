@@ -8,8 +8,8 @@
 - **Họ và tên:** NguyenCongVinh
 - **MSSV:** 2A202602519
 - **Lớp:** K4-L3A
-- **Repository URL:** [BỔ SUNG URL REPOSITORY CÁ NHÂN]
-- **Commit SHA cuối:** [BỔ SUNG SAU KHI COMMIT CUỐI]
+- **Repository URL:** https://github.com/What57-ph/K4-L3-DAY13-NguyenCongVinh-2A202602519-Monitoring-LLMOps
+- **Commit SHA cuối:** cbd3cd6f3e33d837bcd4e3c73db9ccf57b564b76
 - **Challenge ID:** Chưa chạy challenge chính thức; chỉ có practice incident.
 - **Tên project Langfuse cá nhân:** day13-k4-l3a-2A202602519
 
